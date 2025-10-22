@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mosquito Finder</title>
+    <style>
+        body {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #02304c 0%, #1a4a5c 100%);
+            color: white;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        html {
+            height: 100%;
+        }
+
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            max-width: 100vw;
+        }
+
+        .header {
+            padding: 20px;
+            text-align: center;
+            background: rgba(2, 48, 76, 0.9);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+
+        .app-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0;
+            color: #bae5e5;
+        }
+
+        .camera-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #000;
+        }
+
+        .camera-view {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .overlay-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .controls {
+            padding: 20px;
+            background: rgba(2, 48, 76, 0.95);
+            backdrop-filter: blur(10px);
+        }
+
+        .button-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-primary {
+            background: #bae5e5;
+            color: #02304c;
+        }
+
+        .btn-primary:hover {
+            background: #a8d8d8;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: rgba(186, 229, 229, 0.2);
+            color: #bae5e5;
+            border: 2px solid #bae5e5;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(186, 229, 229, 0.3);
+        }
+
+        .status-line {
+            text-align: center;
+            font-size: 14px;
+            color: #bae5e5;
+            opacity: 0.8;
+        }
+
+        .tooltip {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(2, 48, 76, 0.9);
+            color: #bae5e5;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 15;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .tooltip.show {
+            opacity: 1;
+        }
+
+        .placeholder-features {
+            margin-top: 10px;
+            padding: 15px;
+            background: rgba(186, 229, 229, 0.1);
+            border-radius: 8px;
+            border-left: 4px solid #bae5e5;
+        }
+
+        .placeholder-text {
+            font-size: 12px;
+            color: #bae5e5;
+            opacity: 0.7;
+            margin: 5px 0;
+        }
+
+        .camera-permission {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .permission-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+            opacity: 0.7;
+        }
+
+        @media (max-width: 480px) {
+            .app-title {
+                font-size: 20px;
+            }
+            
+            .btn {
+                font-size: 14px;
+                padding: 10px 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="header">
+            <h1 class="app-title">🦟 Mosquito Finder</h1>
+        </header>
+
+        <main class="camera-container">
+            <video id="cameraView" class="camera-view" autoplay muted playsinline></video>
+            <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
+            
+            <div id="lightingTooltip" class="tooltip">
+                💡 Turn on flashlight for better visibility
+            </div>
+
+            <div id="cameraPermission" class="camera-permission" style="display: none;">
+                <div class="permission-icon">📷</div>
+                <h2>Camera Access Needed</h2>
+                <p>Mosquito Finder needs camera access to detect small moving objects</p>
+                <button class="btn btn-primary" onclick="requestCamera()">Enable Camera</button>
+            </div>
+        </main>
+
+        <div class="controls">
+            <div class="button-row">
+                <button id="flashlightBtn" class="btn btn-primary" onclick="toggleFlashlight()">
+                    Enable Flashlight
+                </button>
+                <button class="btn btn-secondary" onclick="scanAgain()">
+                    Scan Area Again
+                </button>
+            </div>
+            
+            <div id="statusLine" class="status-line">
+                Initializing camera...
+            </div>
+
+            <div class="placeholder-features">
+                <div class="placeholder-text">🔬 Mosquito vs. Gnat confidence: Analyzing...</div>
+                <div class="placeholder-text">📝 Report bug type (Coming soon)</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables for camera and motion detection
+        let video, canvas, ctx;
+        let previousFrame = null;
+        let motionDetectionActive = false;
+        let flashlightEnabled = false;
+        let lastMotionTime = 0;
+        let predictionInterval;
+
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', function() {
+            video = document.getElementById('cameraView');
+            canvas = document.getElementById('overlayCanvas');
+            ctx = canvas.getContext('2d');
+            
+            requestCamera();
+        });
+
+        // Request camera access
+        async function requestCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'environment', // Use rear camera
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                });
+                
+                video.srcObject = stream;
+                document.getElementById('cameraPermission').style.display = 'none';
+                
+                video.addEventListener('loadedmetadata', () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    startMotionDetection();
+                    updateStatus('Camera ready - Looking for movement...');
+                });
+                
+            } catch (error) {
+                console.error('Camera access denied:', error);
+                document.getElementById('cameraPermission').style.display = 'flex';
+                updateStatus('Camera access required');
+            }
+        }
+
+        // CORE MOTION DETECTION ALGORITHM
+        // This is where the main mosquito detection logic runs
+        function startMotionDetection() {
+            motionDetectionActive = true;
+            
+            // Start prediction mode - shows potential mosquito locations every 10 seconds
+            predictionInterval = setInterval(showPrediction, 10000);
+            
+            detectMotion();
+        }
+
+        function detectMotion() {
+            if (!motionDetectionActive || video.readyState !== 4) {
+                requestAnimationFrame(detectMotion);
+                return;
+            }
+
+            // Create temporary canvas for frame comparison
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = video.videoWidth / 4; // Reduce resolution for performance
+            tempCanvas.height = video.videoHeight / 4;
+            
+            // Draw current frame
+            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+            const currentFrame = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            
+            if (previousFrame) {
+                // MOTION DETECTION CORE ALGORITHM
+                // Compare current frame with previous frame to detect movement
+                const motionAreas = compareFrames(currentFrame, previousFrame);
+                
+                // Clear previous overlays
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // MOSQUITO-SPECIFIC FILTERING
+                // Filter out large movements (hands, curtains) and focus on small, fast objects
+                const mosquitoLikeMotion = filterForSmallObjects(motionAreas);
+                
+                if (mosquitoLikeMotion.length > 0) {
+                    drawMotionHighlights(mosquitoLikeMotion);
+                    lastMotionTime = Date.now();
+                    updateStatus(`Movement detected: ${mosquitoLikeMotion.length} possible targets`);
+                    
+                    // Check lighting conditions and show tip if needed
+                    checkLightingConditions(currentFrame);
+                }
+            }
+            
+            previousFrame = currentFrame;
+            requestAnimationFrame(detectMotion);
+        }
+
+        // Compare two frames to find motion areas
+        function compareFrames(current, previous) {
+            const motionAreas = [];
+            const threshold = 30; // Sensitivity threshold
+            const data1 = current.data;
+            const data2 = previous.data;
+            
+            // Scan in blocks to detect motion regions
+            const blockSize = 8;
+            for (let y = 0; y < current.height - blockSize; y += blockSize) {
+                for (let x = 0; x < current.width - blockSize; x += blockSize) {
+                    let totalDiff = 0;
+                    let pixelCount = 0;
+                    
+                    // Compare pixels in this block
+                    for (let by = 0; by < blockSize; by++) {
+                        for (let bx = 0; bx < blockSize; bx++) {
+                            const i = ((y + by) * current.width + (x + bx)) * 4;
+                            
+                            // Calculate grayscale difference
+                            const gray1 = (data1[i] + data1[i + 1] + data1[i + 2]) / 3;
+                            const gray2 = (data2[i] + data2[i + 1] + data2[i + 2]) / 3;
+                            
+                            totalDiff += Math.abs(gray1 - gray2);
+                            pixelCount++;
+                        }
+                    }
+                    
+                    const avgDiff = totalDiff / pixelCount;
+                    if (avgDiff > threshold) {
+                        motionAreas.push({
+                            x: x * 4, // Scale back to full resolution
+                            y: y * 4,
+                            width: blockSize * 4,
+                            height: blockSize * 4,
+                            intensity: avgDiff
+                        });
+                    }
+                }
+            }
+            
+            return motionAreas;
+        }
+
+        // MOSQUITO-SPECIFIC FILTERING ALGORITHM
+        // This function filters motion to focus on small, mosquito-like movements
+        function filterForSmallObjects(motionAreas) {
+            return motionAreas.filter(area => {
+                // Filter criteria for mosquito-like objects:
+                // 1. Small size (mosquitoes are tiny)
+                const isSmallEnough = area.width <= 60 && area.height <= 60;
+                
+                // 2. High intensity movement (mosquitoes move quickly)
+                const isIntenseEnough = area.intensity > 40;
+                
+                // 3. Not too large (filter out hands, curtains, etc.)
+                const notTooLarge = area.width * area.height < 2000;
+                
+                return isSmallEnough && isIntenseEnough && notTooLarge;
+            });
+        }
+
+        // Draw glowing highlights over detected motion
+        function drawMotionHighlights(motionAreas) {
+            motionAreas.forEach(area => {
+                // Draw glowing circle overlay
+                ctx.save();
+                
+                // Outer glow
+                ctx.shadowColor = '#bae5e5';
+                ctx.shadowBlur = 20;
+                ctx.strokeStyle = '#bae5e5';
+                ctx.lineWidth = 3;
+                ctx.fillStyle = 'rgba(186, 229, 229, 0.3)';
+                
+                const centerX = area.x + area.width / 2;
+                const centerY = area.y + area.height / 2;
+                const radius = Math.max(area.width, area.height) / 2 + 10;
+                
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+                
+                // Inner highlight
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                ctx.restore();
+            });
+        }
+
+        // PREDICTION MODE - Shows where mosquito might move next
+        function showPrediction() {
+            if (lastMotionTime && Date.now() - lastMotionTime < 30000) { // Within last 30 seconds
+                ctx.save();
+                
+                // Show translucent prediction circle in a likely area
+                const predictionX = Math.random() * canvas.width;
+                const predictionY = Math.random() * canvas.height;
+                
+                ctx.fillStyle = 'rgba(255, 255, 0, 0.4)';
+                ctx.strokeStyle = '#ffff00';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                
+                ctx.beginPath();
+                ctx.arc(predictionX, predictionY, 40, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+                
+                ctx.restore();
+                
+                // Clear prediction after 3 seconds
+                setTimeout(() => {
+                    ctx.clearRect(predictionX - 50, predictionY - 50, 100, 100);
+                }, 3000);
+                
+                updateStatus('Prediction: Mosquito may be in highlighted area');
+            }
+        }
+
+        // Check lighting conditions and show tooltip if needed
+        function checkLightingConditions(frameData) {
+            let totalBrightness = 0;
+            const data = frameData.data;
+            
+            // Sample brightness from frame
+            for (let i = 0; i < data.length; i += 40) { // Sample every 10th pixel
+                const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                totalBrightness += brightness;
+            }
+            
+            const avgBrightness = totalBrightness / (data.length / 40);
+            
+            if (avgBrightness < 80) { // Low light detected
+                showLightingTip();
+            }
+        }
+
+        function showLightingTip() {
+            const tooltip = document.getElementById('lightingTooltip');
+            tooltip.classList.add('show');
+            
+            setTimeout(() => {
+                tooltip.classList.remove('show');
+            }, 3000);
+        }
+
+        // Flashlight control
+        async function toggleFlashlight() {
+            const btn = document.getElementById('flashlightBtn');
+            
+            try {
+                const stream = video.srcObject;
+                const track = stream.getVideoTracks()[0];
+                const capabilities = track.getCapabilities();
+                
+                if (capabilities.torch) {
+                    flashlightEnabled = !flashlightEnabled;
+                    await track.applyConstraints({
+                        advanced: [{ torch: flashlightEnabled }]
+                    });
+                    
+                    btn.textContent = flashlightEnabled ? 'Disable Flashlight' : 'Enable Flashlight';
+                    btn.style.background = flashlightEnabled ? '#ffeb3b' : '#bae5e5';
+                    btn.style.color = flashlightEnabled ? '#02304c' : '#02304c';
+                } else {
+                    updateStatus('Flashlight not available on this device');
+                }
+            } catch (error) {
+                updateStatus('Could not control flashlight');
+            }
+        }
+
+        // Restart scanning
+        function scanAgain() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            lastMotionTime = 0;
+            previousFrame = null;
+            updateStatus('Scanning area again...');
+        }
+
+        // Update status message
+        function updateStatus(message) {
+            document.getElementById('statusLine').textContent = message;
+        }
+
+        // Update status with time since last motion
+        setInterval(() => {
+            if (lastMotionTime > 0) {
+                const secondsAgo = Math.floor((Date.now() - lastMotionTime) / 1000);
+                if (secondsAgo < 60) {
+                    updateStatus(`Last movement detected: ${secondsAgo} seconds ago`);
+                } else {
+                    updateStatus('No recent movement detected');
+                }
+            }
+        }, 1000);
+
+        // FUTURE AI MODEL INTEGRATION POINT
+        // This is where a TensorFlow Lite JS or other AI model could be integrated:
+        // 
+        // function classifyInsect(imageData, boundingBox) {
+        //     // Load pre-trained mosquito vs other insects model
+        //     // const model = await tf.loadLayersModel('/models/mosquito-classifier.json');
+        //     // 
+        //     // Extract region of interest from imageData using boundingBox
+        //     // const roi = extractROI(imageData, boundingBox);
+        //     // 
+        //     // Preprocess for model (resize, normalize, etc.)
+        //     // const preprocessed = preprocessImage(roi);
+        //     // 
+        //     // Run inference
+        //     // const prediction = model.predict(preprocessed);
+        //     // 
+        //     // Return confidence scores
+        //     // return {
+        //     //     mosquito: prediction[0],
+        //     //     gnat: prediction[1],
+        //     //     fly: prediction[2],
+        //     //     other: prediction[3]
+        //     // };
+        // }
+        //
+        // This function would be called from filterForSmallObjects() to add
+        // AI-powered classification on top of the motion detection
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'992c91df6352dbdd',t:'MTc2MTE3MzU5Ni4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
